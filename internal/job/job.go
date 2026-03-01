@@ -14,9 +14,8 @@ const (
 
 // Job represents a unit of work in the task queue.
 type Job struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Queue string `json:"queue"`
+	ID   string `json:"id"`
+	Type string `json:"type"`
 
 	// Payload is the job data. It is a map of ID string to any.
 	Payload map[string]any `json:"payload"`

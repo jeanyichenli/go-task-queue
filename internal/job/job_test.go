@@ -55,7 +55,6 @@ func TestJob_WithFields(t *testing.T) {
 	j := Job{
 		ID:          "job-1",
 		Type:        "email",
-		Queue:       "default",
 		Payload:     map[string]any{"job-1": map[string]any{"to": "user@example.com"}},
 		Status:      StatusPending,
 		CreatedAt:   now,
@@ -73,9 +72,6 @@ func TestJob_WithFields(t *testing.T) {
 	}
 	if j.Type != "email" {
 		t.Errorf("Type = %q, want email", j.Type)
-	}
-	if j.Queue != "default" {
-		t.Errorf("Queue = %q, want default", j.Queue)
 	}
 	if j.Payload == nil {
 		t.Fatal("Payload should not be nil")
