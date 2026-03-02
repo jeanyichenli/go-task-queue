@@ -21,11 +21,9 @@ type Job struct {
 	Payload map[string]any `json:"payload"`
 
 	// Status and timing
-	Status      Status     `json:"status"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ScheduledAt time.Time  `json:"scheduled_at"`
-	StartedAt   *time.Time `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at"`
+	Status    Status    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Retries
 	Attempt     int    `json:"attempt"`

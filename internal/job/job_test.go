@@ -39,18 +39,15 @@ func TestJob_ZeroValue(t *testing.T) {
 	if j.Attempt != 0 {
 		t.Errorf("zero Job Attempt = %d, want 0", j.Attempt)
 	}
-	if j.StartedAt != nil {
-		t.Error("zero Job StartedAt should be nil")
-	}
-	if j.CompletedAt != nil {
-		t.Error("zero Job CompletedAt should be nil")
+
+	if !j.CreatedAt.IsZero() {
+		t.Errorf("zero Job CreatedAt = %v, want zero", j.CreatedAt)
 	}
 }
 
 func TestJob_WithFields(t *testing.T) {
 	now := time.Now()
-	started := now.Add(time.Minute)
-	completed := now.Add(2 * time.Minute)
+	updated := now.Add(time.Minute)
 
 	j := Job{
 		ID:          "job-1",
@@ -58,9 +55,7 @@ func TestJob_WithFields(t *testing.T) {
 		Payload:     map[string]any{"job-1": map[string]any{"to": "user@example.com"}},
 		Status:      StatusPending,
 		CreatedAt:   now,
-		ScheduledAt: now,
-		StartedAt:   &started,
-		CompletedAt: &completed,
+		UpdatedAt:   updated,
 		Attempt:     1,
 		MaxAttempts: 3,
 		LastError:   "",
@@ -88,7 +83,7 @@ func TestJob_WithFields(t *testing.T) {
 	if j.Priority != 1 {
 		t.Errorf("Priority = %d, want 1", j.Priority)
 	}
-	if j.StartedAt == nil || j.CompletedAt == nil {
+	if j.CreatedAt.IsZero() || j.UpdatedAt.IsZero() {
 		t.Error("StartedAt and CompletedAt should be set")
 	}
 }
