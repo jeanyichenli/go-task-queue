@@ -1,0 +1,142 @@
+<!-- @format -->
+
+## Go Task Queue
+
+This project is a small experimental task-queue service written in Go. It is built around three core internal concepts:
+
+- **Jobs**: units of work to be processed.
+- **Queues**: responsible for persisting and dispatching jobs.
+- **Worker pools**: concurrent workers that pull jobs from the queue and execute handlers with exponential back-off on errors. Multiple workers can run in parallel, handling different job types via a type-to-handler map.
+
+<!-- This README documents the current internal workflow. Public APIs and service wiring (HTTP endpoints, CLI, etc.) will be added later. -->
+
+---
+
+## Job model
+
+Jobs are defined in `internal/job/job.go`.
+
+- **Fields**
+  - `ID string`: unique job identifier.
+  - `Type string`: job type, used to route to a handler.
+  - `Payload map[string]any`: arbitrary job-specific data.
+  - `Status job.Status`: lifecycle status, one of:
+    - `pending`
+    - `running`
+    - `completed`
+    - `failed`
+    - `cancelled`
+  - `CreatedAt`, `UpdatedAt time.Time`: timestamps for bookkeeping.
+  - `Attempt int`: how many times this job has been attempted.
+  - `MaxAttempts int`: maximum number of attempts allowed.
+  - `LastError string`: last error message, if any.
+  - `Priority int`: higher value means more important (currently stored but not re-ordered in the pending queue).
+
+Jobs are serialized to JSON and stored in the backing queue (Redis).
+
+---
+
+## Queue abstraction and Redis implementation
+
+The queue abstraction is defined in `internal/queue/queue.go` as the `Queue` interface:
+
+- **Core methods**
+  - `Enqueue(ctx, *job.Job) error`: store a job and push its ID onto the pending queue.
+  - `Dequeue(ctx) (*job.Job, error)`: block until a job ID is available, load the job, and mark it as running.
+  - `UpdateStatus(ctx, jobID, status) error`: update job status and persist it.
+  - `UpdateAttempt(ctx, jobID, attempt) error`
+  - `UpdateLastError(ctx, jobID, lastError) error`
+  - `UpdateCompletedAt(ctx, jobID, completedAt) error`
+  - `UpdateStartedAt(ctx, jobID, startedAt) error`
+  - `UpdatePriority(ctx, jobID, priority) error`
+  - `Close(ctx) error`: close underlying resources.
+  - `GetJob(ctx, jobID) (*job.Job, error)`: fetch a single job.
+  - `ListJobs(ctx) ([]*job.Job, error)`: return all jobs.
+  - `ListJobsByStatus(ctx, status) ([]*job.Job, error)`
+  - `ListJobsByType(ctx, t string) ([]*job.Job, error)`
+
+The concrete Redis-backed implementation lives in `internal/queue/redis.go`:
+
+- Uses `github.com/redis/go-redis/v9`.
+- Stores jobs under keys like `job:<id>`.
+- Uses a Redis list `queue:pending` for pending job IDs and `BRPOP` to block until a job is available.
+- Maintains basic indexes for status and type via Redis sets.
+
+---
+
+## Worker pool and handlers
+
+Worker logic is in `internal/worker/worker.go`.
+
+- **Handler**
+  - `type Handler func(ctx context.Context, job *job.Job) error`
+  - Callers register a map `map[string]Handler` keyed by job type.
+
+- **WorkerPool**
+  - Holds:
+    - a base context and cancel function,
+    - a `queue.Queue` implementation,
+    - registered handlers,
+    - a configurable number of workers,
+    - a `sync.WaitGroup` to wait for workers,
+    - an exponential back-off instance (see below).
+  - `Start()`:
+    - Derives a cancellable context.
+    - Spins up `numberOfWorkers` goroutines, each running `runWorker`.
+  - `Stop()`:
+    - Cancels the context and waits for all workers to finish.
+  - `runWorker()`:
+    - Loops until the context is cancelled.
+    - Dequeues a job from the queue.
+    - On non-fatal errors or handler failures, it applies exponential back-off before retrying.
+    - On success or when there is simply no job to process, it resets the back-off.
+
+---
+
+## Exponential back-off module
+
+Exponential back-off utilities live in `internal/backoff/backoff.go`.
+
+- **Exponential**
+  - `NewExponential(base, max time.Duration) *Exponential`
+  - `Next() time.Duration`: doubles from `base` until `max` (if `max > 0`), then stays capped.
+  - `Reset()`: resets the internal state so the next call to `Next()` returns the base duration again.
+
+- **Sleep**
+  - `Sleep(ctx context.Context, d time.Duration) bool`:
+    - Sleeps for duration `d` or returns early if the context is cancelled.
+    - Returns `false` when the context is cancelled, `true` otherwise.
+
+The `WorkerPool` uses `Exponential` plus `Sleep` together with per-job retry
+metadata (`Attempt`, `MaxAttempts`, `LastError`) to control retries:
+
+- Back-off when `Dequeue` returns an error (for example, a transient Redis problem).
+- When a handler returns an error:
+  - Increment the job's `Attempt` counter and persist `LastError`.
+  - If `MaxAttempts > 0` and `Attempt >= MaxAttempts`, mark the job as `failed`.
+  - Otherwise, set the status back to `pending` and re-enqueue the job for another try.
+  - In all error cases, apply exponential back-off before fetching the next job, to avoid tight retry loops.
+- Reset the back-off after successful processing or when no jobs are available.
+
+---
+
+## Future work
+
+Planned next steps (not implemented yet):
+
+- **HTTP/API layer**
+  - Endpoints to enqueue new jobs.
+  - Endpoints to inspect job status and history.
+  - Health and metrics endpoints for workers and queue.
+
+- **Service wiring**
+  - Main binary that wires together Redis, the queue implementation, worker pool, and HTTP server.
+  - Configuration via environment variables or config file.
+
+- **Additional features**
+  - Priority-aware scheduling.
+  - Dead letter queue for permanently failed jobs, plus tools to inspect, analyze, and optionally reprocess DLQ items.
+  - Centralized logging/observability for workers, queue operations, and job lifecycle.
+  - Dockerfile and Docker Compose setup for local and containerized deployment (Redis + service).
+
+<!-- For now, the focus is on a clean, testable core that can be reused when the outer service and APIs are added later. -->
