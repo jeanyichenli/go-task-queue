@@ -325,6 +325,60 @@ func TestRedisQueue_UpdateLastError(t *testing.T) {
 	}
 }
 
+func TestRedisQueue_UpdateCompletedAt(t *testing.T) {
+	q, mr, cleanup := testQueue(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	j := jobWithID("time-1")
+	originalUpdatedAt := j.UpdatedAt
+	mr.Set(jobKey(j.ID), string(mustMarshalJob(t, j)))
+
+	completedAt := originalUpdatedAt.Add(5 * time.Minute).UTC()
+
+	if err := q.UpdateCompletedAt(ctx, "time-1", completedAt); err != nil {
+		t.Fatalf("UpdateCompletedAt: %v", err)
+	}
+
+	got, err := q.GetJob(ctx, "time-1")
+	if err != nil {
+		t.Fatalf("GetJob after UpdateCompletedAt: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("GetJob after UpdateCompletedAt: got nil job")
+	}
+	if !got.UpdatedAt.Equal(completedAt) {
+		t.Errorf("UpdatedAt = %v, want %v", got.UpdatedAt, completedAt)
+	}
+}
+
+func TestRedisQueue_UpdateStartedAt(t *testing.T) {
+	q, mr, cleanup := testQueue(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	j := jobWithID("time-2")
+	originalUpdatedAt := j.UpdatedAt
+	mr.Set(jobKey(j.ID), string(mustMarshalJob(t, j)))
+
+	startedAt := originalUpdatedAt.Add(2 * time.Minute).UTC()
+
+	if err := q.UpdateStartedAt(ctx, "time-2", startedAt); err != nil {
+		t.Fatalf("UpdateStartedAt: %v", err)
+	}
+
+	got, err := q.GetJob(ctx, "time-2")
+	if err != nil {
+		t.Fatalf("GetJob after UpdateStartedAt: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("GetJob after UpdateStartedAt: got nil job")
+	}
+	if !got.UpdatedAt.Equal(startedAt) {
+		t.Errorf("UpdatedAt = %v, want %v", got.UpdatedAt, startedAt)
+	}
+}
+
 func TestRedisQueue_UpdatePriority(t *testing.T) {
 	q, mr, cleanup := testQueue(t)
 	defer cleanup()

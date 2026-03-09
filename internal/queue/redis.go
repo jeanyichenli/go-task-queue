@@ -141,6 +141,16 @@ func (q *RedisQueue) UpdateLastError(ctx context.Context, jobID string, lastErro
 	return q.updateJobField(ctx, jobID, func(j *job.Job) { j.LastError = lastError })
 }
 
+// UpdateCompletedAt sets the job's completion time.
+func (q *RedisQueue) UpdateCompletedAt(ctx context.Context, jobID string, completedAt time.Time) error {
+	return q.updateJobField(ctx, jobID, func(j *job.Job) { j.UpdatedAt = completedAt })
+}
+
+// UpdateStartedAt sets the job's start time.
+func (q *RedisQueue) UpdateStartedAt(ctx context.Context, jobID string, startedAt time.Time) error {
+	return q.updateJobField(ctx, jobID, func(j *job.Job) { j.UpdatedAt = startedAt })
+}
+
 // UpdatePriority updates the job priority (does not reorder the pending queue).
 func (q *RedisQueue) UpdatePriority(ctx context.Context, jobID string, priority int) error {
 	return q.updateJobField(ctx, jobID, func(j *job.Job) { j.Priority = priority })
