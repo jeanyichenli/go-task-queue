@@ -120,18 +120,76 @@ metadata (`Attempt`, `MaxAttempts`, `LastError`) to control retries:
 
 ---
 
+## Running the service
+
+The repository now includes a runnable service binary in `cmd/go-task-queue`.
+
+### Build
+
+```bash
+go build ./cmd/go-task-queue
+```
+
+### Configure
+
+Configuration is taken from environment variables, with command-line flags as overrides:
+
+- **Environment variables**
+  - `REDIS_ADDR`: Redis address, default `localhost:6379`.
+  - `WORKERS`: number of worker goroutines, default `4`.
+  - `HTTP_ADDR`: HTTP listen address, default `:8080`.
+
+- **Flags**
+  - `--redis-addr`: overrides `REDIS_ADDR`.
+  - `--workers`: overrides `WORKERS`.
+  - `--http-addr`: overrides `HTTP_ADDR`.
+
+### Run
+
+Example:
+
+```bash
+REDIS_ADDR=localhost:6379 WORKERS=4 HTTP_ADDR=:8080 ./go-task-queue
+```
+
+This will:
+
+- Connect to Redis.
+- Start a `WorkerPool` with the configured number of workers and a simple `echo` handler.
+- Start an HTTP server on the configured address.
+
+### HTTP API
+
+Minimal HTTP endpoints are provided by `internal/httpapi/httpapi.go`:
+
+- `GET /health`: basic health check, returns `200 OK` with body `ok`.
+- `POST /jobs`: enqueue a new job.
+  - Request JSON body:
+    - `type` (string, required): job type (e.g. `"echo"`).
+    - `payload` (object, optional): arbitrary JSON payload.
+    - `max_attempts` (int, optional): maximum retries before marking as failed.
+    - `priority` (int, optional): higher = more important (currently not re-ordered).
+  - Response JSON:
+    - `id`: job ID.
+    - `status`: initial status (`pending`).
+- `GET /jobs`: list all jobs (uses `ListJobs`).
+- `GET /jobs/{id}`: get a single job by ID, returns `404` if not found.
+
+Example usage:
+
+```bash
+curl -X POST http://localhost:8080/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"type":"echo","payload":{"msg":"hello"}}'
+
+curl http://localhost:8080/jobs
+
+curl http://localhost:8080/jobs/<job_id>
+```
+
 ## Future work
 
 Planned next steps (not implemented yet):
-
-- **HTTP/API layer**
-  - Endpoints to enqueue new jobs.
-  - Endpoints to inspect job status and history.
-  - Health and metrics endpoints for workers and queue.
-
-- **Service wiring**
-  - Main binary that wires together Redis, the queue implementation, worker pool, and HTTP server.
-  - Configuration via environment variables or config file.
 
 - **Additional features**
   - Priority-aware scheduling.
