@@ -195,6 +195,7 @@ Planned next steps (not implemented yet):
   - Priority-aware scheduling.
   - Dead letter queue for permanently failed jobs, plus tools to inspect, analyze, and optionally reprocess DLQ items.
   - Centralized logging/observability for workers, queue operations, and job lifecycle.
+  - Configurable structured logging with levels (error, warn, info, debug) and pluggable backends.
   - Dockerfile and Docker Compose setup for local and containerized deployment (Redis + service).
 
 <!-- For now, the focus is on a clean, testable core that can be reused when the outer service and APIs are added later. -->
