@@ -1,0 +1,9 @@
+[
+  {
+    "type": "echo",
+    "target": "mock://echo-service",
+    "timeout_seconds": 2,
+    "max_attempts": 3
+  }
+]
+
