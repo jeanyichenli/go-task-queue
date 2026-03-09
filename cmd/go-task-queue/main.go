@@ -93,19 +93,27 @@ func main() {
 	// Begin graceful shutdown.
 	cancel()
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Use a relatively short timeout so shutdown does not hang for long.
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
+	log.Printf("shutdown: calling http server Shutdown")
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("http server shutdown error: %v", err)
 	}
+	log.Printf("shutdown: http server Shutdown complete")
 
+	log.Printf("shutdown: calling worker pool Stop")
 	pool.Stop()
+	log.Printf("shutdown: worker pool Stop complete")
 
+	log.Printf("shutdown: calling queue Close")
 	if err := q.Close(shutdownCtx); err != nil {
 		log.Printf("queue close error: %v", err)
 	}
+	log.Printf("shutdown: queue Close complete")
 
+	log.Printf("shutdown: calling redis client Close")
 	if err := rdb.Close(); err != nil {
 		log.Printf("redis client close error: %v", err)
 	}

@@ -57,39 +57,54 @@ func (q *RedisQueue) Enqueue(ctx context.Context, j *job.Job) error {
 }
 
 // Dequeue removes and returns the next pending job (highest priority, then FIFO).
+// It uses a short blocking timeout in a loop so that it can respond promptly
+// to context cancellation instead of potentially blocking forever in BRPop.
 func (q *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
-	results, err := q.client.BRPop(ctx, 0, keyQueuePending).Result()
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
+	for {
+		// If the caller's context has been cancelled, exit quickly.
+		if ctx.Err() != nil {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("dequeue: brpop: %w", err)
+
+		// Use a finite timeout so we regularly re-check ctx.Err().
+		results, err := q.client.BRPop(ctx, time.Second, keyQueuePending).Result()
+		if err != nil {
+			// Timeout with no element; loop again and re-check context.
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			// Context cancelled while blocked in BRPop.
+			if errors.Is(err, context.Canceled) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("dequeue: brpop: %w", err)
+		}
+
+		// result[0] is the queue name, result[1] is the job ID
+		jobID := results[1]
+
+		// fetch the job from the Redis database
+		data, err := q.client.Get(ctx, jobKey(jobID)).Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("dequeue: fetch job: %w", err)
+		}
+
+		// unmarshal the job
+		var j job.Job
+		if err := json.Unmarshal(data, &j); err != nil {
+			return nil, fmt.Errorf("dequeue: unmarshal job: %w", err)
+		}
+
+		// update the job status and processed timestamp to running and now
+		j.UpdatedAt = time.Now()
+		j.Status = job.StatusRunning
+		err = q.UpdateStatus(ctx, jobID, job.StatusRunning)
+		if err != nil {
+			return nil, fmt.Errorf("dequeue: update status: %w", err)
+		}
+
+		return &j, nil
 	}
-
-	// result[0] is the queue name, result[1] is the job ID
-	jobID := results[1]
-
-	// fetch the job from the Redis database
-	data, err := q.client.Get(ctx, jobKey(jobID)).Bytes()
-	if err != nil {
-		return nil, fmt.Errorf("dequeue: fetch job: %w", err)
-	}
-
-	// unmarshal the job
-	var j job.Job
-	if err := json.Unmarshal(data, &j); err != nil {
-		return nil, fmt.Errorf("dequeue: unmarshal job: %w", err)
-	}
-
-	// update the job status and processed timestamp to running and now
-	j.UpdatedAt = time.Now()
-	j.Status = job.StatusRunning
-	err = q.UpdateStatus(ctx, jobID, job.StatusRunning)
-	if err != nil {
-		return nil, fmt.Errorf("dequeue: update status: %w", err)
-	}
-
-	return &j, nil
 }
 
 func (q *RedisQueue) getJobRaw(ctx context.Context, jobID string) ([]byte, error) {
