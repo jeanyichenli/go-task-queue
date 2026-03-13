@@ -43,6 +43,9 @@ func TestJob_ZeroValue(t *testing.T) {
 	if !j.CreatedAt.IsZero() {
 		t.Errorf("zero Job CreatedAt = %v, want zero", j.CreatedAt)
 	}
+	if j.LastError != "" {
+		t.Errorf("zero Job LastError = %q, want empty", j.LastError)
+	}
 }
 
 func TestJob_WithFields(t *testing.T) {
@@ -59,7 +62,6 @@ func TestJob_WithFields(t *testing.T) {
 		Attempt:     1,
 		MaxAttempts: 3,
 		LastError:   "",
-		Priority:    1,
 	}
 
 	if j.ID != "job-1" {
@@ -80,8 +82,8 @@ func TestJob_WithFields(t *testing.T) {
 	if j.Attempt != 1 || j.MaxAttempts != 3 {
 		t.Errorf("Attempt = %d, MaxAttempts = %d; want 1, 3", j.Attempt, j.MaxAttempts)
 	}
-	if j.Priority != 1 {
-		t.Errorf("Priority = %d, want 1", j.Priority)
+	if j.LastError != "" {
+		t.Errorf("LastError = %q, want empty", j.LastError)
 	}
 	if j.CreatedAt.IsZero() || j.UpdatedAt.IsZero() {
 		t.Error("StartedAt and CompletedAt should be set")
@@ -96,6 +98,15 @@ func TestJob_RetryState(t *testing.T) {
 		MaxAttempts: 3,
 		LastError:   "connection refused",
 		Status:      StatusFailed,
+	}
+	if j.ID != "job-retry" {
+		t.Errorf("ID = %q, want job-retry", j.ID)
+	}
+	if j.Type != "webhook" {
+		t.Errorf("Type = %q, want webhook", j.Type)
+	}
+	if j.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want 3", j.MaxAttempts)
 	}
 	if j.Attempt != 2 {
 		t.Errorf("Attempt = %d, want 2", j.Attempt)

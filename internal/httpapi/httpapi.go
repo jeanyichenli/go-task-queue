@@ -96,7 +96,6 @@ func (s *Server) handleEnqueueJob(w http.ResponseWriter, r *http.Request) {
 		Type        string                 `json:"type"`
 		Payload     map[string]any         `json:"payload"`
 		MaxAttempts int                    `json:"max_attempts"`
-		Priority    int                    `json:"priority"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -120,7 +119,6 @@ func (s *Server) handleEnqueueJob(w http.ResponseWriter, r *http.Request) {
 		Attempt:     0,
 		MaxAttempts: req.MaxAttempts,
 		LastError:   "",
-		Priority:    req.Priority,
 	}
 
 	if err := s.queue.Enqueue(ctx, j); err != nil {

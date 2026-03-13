@@ -29,7 +29,4 @@ type Job struct {
 	Attempt     int    `json:"attempt"`
 	MaxAttempts int    `json:"max_attempts"`
 	LastError   string `json:"last_error"`
-
-	// Priority: higher = more urgent. 0 = default.
-	Priority int `json:"priority"`
 }

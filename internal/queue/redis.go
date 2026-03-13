@@ -69,7 +69,7 @@ func (q *RedisQueue) Enqueue(ctx context.Context, j *job.Job) error {
 	return nil
 }
 
-// Dequeue removes and returns the next pending job (highest priority, then FIFO).
+// Dequeue removes and returns the next pending job (FIFO).
 // It uses a short blocking timeout in a loop so that it can respond promptly
 // to context cancellation instead of potentially blocking forever in BRPop.
 func (q *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
@@ -182,11 +182,6 @@ func (q *RedisQueue) UpdateCompletedAt(ctx context.Context, jobID string, comple
 // UpdateStartedAt sets the job's start time.
 func (q *RedisQueue) UpdateStartedAt(ctx context.Context, jobID string, startedAt time.Time) error {
 	return q.updateJobField(ctx, jobID, func(j *job.Job) { j.UpdatedAt = startedAt })
-}
-
-// UpdatePriority updates the job priority (does not reorder the pending queue).
-func (q *RedisQueue) UpdatePriority(ctx context.Context, jobID string, priority int) error {
-	return q.updateJobField(ctx, jobID, func(j *job.Job) { j.Priority = priority })
 }
 
 func (q *RedisQueue) updateJobField(ctx context.Context, jobID string, update func(*job.Job)) error {

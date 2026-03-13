@@ -24,7 +24,6 @@ type Queue interface {
 	UpdateLastError(ctx context.Context, jobID string, lastError string) error
 	UpdateCompletedAt(ctx context.Context, jobID string, completedAt time.Time) error
 	UpdateStartedAt(ctx context.Context, jobID string, startedAt time.Time) error
-	UpdatePriority(ctx context.Context, jobID string, priority int) error
 	Close(ctx context.Context) error
 	GetJob(ctx context.Context, jobID string) (*job.Job, error)
 	ListJobs(ctx context.Context) ([]*job.Job, error)

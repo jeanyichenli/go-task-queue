@@ -30,7 +30,6 @@ Jobs are defined in `internal/job/job.go`.
   - `Attempt int`: how many times this job has been attempted.
   - `MaxAttempts int`: maximum number of attempts allowed.
   - `LastError string`: last error message, if any.
-  - `Priority int`: higher value means more important (currently stored but not re-ordered in the pending queue).
 
 Jobs are serialized to JSON and stored in the backing queue (Redis).
 
@@ -48,7 +47,6 @@ The queue abstraction is defined in `internal/queue/queue.go` as the `Queue` int
   - `UpdateLastError(ctx, jobID, lastError) error`
   - `UpdateCompletedAt(ctx, jobID, completedAt) error`
   - `UpdateStartedAt(ctx, jobID, startedAt) error`
-  - `UpdatePriority(ctx, jobID, priority) error`
   - `Close(ctx) error`: close underlying resources.
   - `GetJob(ctx, jobID) (*job.Job, error)`: fetch a single job.
   - `ListJobs(ctx) ([]*job.Job, error)`: return all jobs.
@@ -136,25 +134,25 @@ Configuration is loaded from **environment variables** first. **Command-line fla
 
 #### Environment variables
 
-| Variable | Meaning | Default |
-|----------|---------|---------|
-| `REDIS_ADDR` | Redis server address (`host:port`). | `localhost:6379` |
-| `WORKERS` | Number of worker goroutines that dequeue and run jobs. Must be a positive integer. | `4` |
-| `HTTP_ADDR` | HTTP listen address for the API (e.g. `:8080`). | `:8080` |
-| `HANDLERS_CONFIG` | Path to the JSON file that defines job type → handler config (targets, timeouts, max attempts). | `config/handlers.json` |
-| `LOG_LEVEL` | Minimum log level: `debug`, `info`, `warn`, or `error`. Messages below this level are omitted (`debug` is most verbose). | `info` |
-| `LOG_CLASS` | Comma-separated log **classes** to allow, or empty for **all**. Classes: `cmd` (startup/shutdown), `api` (HTTP), `worker` (pool/dequeue), `queue` (Redis queue ops), `job` (handlers), `system` (e.g. Redis client). Example: `worker,job` only logs those two. | *(empty — all classes)* |
+| Variable          | Meaning                                                                                                                                                                                                                                                         | Default                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `REDIS_ADDR`      | Redis server address (`host:port`).                                                                                                                                                                                                                             | `localhost:6379`        |
+| `WORKERS`         | Number of worker goroutines that dequeue and run jobs. Must be a positive integer.                                                                                                                                                                              | `4`                     |
+| `HTTP_ADDR`       | HTTP listen address for the API (e.g. `:8080`).                                                                                                                                                                                                                 | `:8080`                 |
+| `HANDLERS_CONFIG` | Path to the JSON file that defines job type → handler config (targets, timeouts, max attempts).                                                                                                                                                                 | `config/handlers.json`  |
+| `LOG_LEVEL`       | Minimum log level: `debug`, `info`, `warn`, or `error`. Messages below this level are omitted (`debug` is most verbose).                                                                                                                                        | `info`                  |
+| `LOG_CLASS`       | Comma-separated log **classes** to allow, or empty for **all**. Classes: `cmd` (startup/shutdown), `api` (HTTP), `worker` (pool/dequeue), `queue` (Redis queue ops), `job` (handlers), `system` (e.g. Redis client). Example: `worker,job` only logs those two. | _(empty — all classes)_ |
 
 #### Flags (override env)
 
-| Flag | Meaning | Default (if unset) |
-|------|---------|--------------------|
-| `--redis-addr` | Same as `REDIS_ADDR`. | `localhost:6379` |
-| `--workers` | Same as `WORKERS`. | `4` |
-| `--http-addr` | Same as `HTTP_ADDR`. | `:8080` |
-| `--handlers-config` | Same as `HANDLERS_CONFIG`. | `config/handlers.json` |
-| `--log-level` | Same as `LOG_LEVEL`. | `info` |
-| `--log-class` | Same as `LOG_CLASS`. | *(empty — all classes)* |
+| Flag                | Meaning                    | Default (if unset)      |
+| ------------------- | -------------------------- | ----------------------- |
+| `--redis-addr`      | Same as `REDIS_ADDR`.      | `localhost:6379`        |
+| `--workers`         | Same as `WORKERS`.         | `4`                     |
+| `--http-addr`       | Same as `HTTP_ADDR`.       | `:8080`                 |
+| `--handlers-config` | Same as `HANDLERS_CONFIG`. | `config/handlers.json`  |
+| `--log-level`       | Same as `LOG_LEVEL`.       | `info`                  |
+| `--log-class`       | Same as `LOG_CLASS`.       | _(empty — all classes)_ |
 
 ### Log line format
 
@@ -189,7 +187,6 @@ Minimal HTTP endpoints are provided by `internal/httpapi/httpapi.go`:
     - `type` (string, required): job type (e.g. `"echo"`).
     - `payload` (object, optional): arbitrary JSON payload.
     - `max_attempts` (int, optional): maximum retries before marking as failed.
-    - `priority` (int, optional): higher = more important (currently not re-ordered).
   - Response JSON:
     - `id`: job ID.
     - `status`: initial status (`pending`).
@@ -213,7 +210,6 @@ curl http://localhost:8080/jobs/<job_id>
 Planned next steps (not implemented yet):
 
 - **Additional features**
-  - Priority-aware scheduling.
   - Dead letter queue for permanently failed jobs, plus tools to inspect, analyze, and optionally reprocess DLQ items.
   - Dockerfile and Docker Compose setup for local and containerized deployment (Redis + service).
 

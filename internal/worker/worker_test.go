@@ -54,7 +54,6 @@ func (f *fakeQueue) UpdateAttempt(context.Context, string, int) error           
 func (f *fakeQueue) UpdateLastError(context.Context, string, string) error               { return nil }
 func (f *fakeQueue) UpdateCompletedAt(context.Context, string, time.Time) error          { return nil }
 func (f *fakeQueue) UpdateStartedAt(context.Context, string, time.Time) error            { return nil }
-func (f *fakeQueue) UpdatePriority(context.Context, string, int) error                   { return nil }
 func (f *fakeQueue) Close(context.Context) error                                         { return nil }
 func (f *fakeQueue) GetJob(context.Context, string) (*job.Job, error)                    { return nil, nil }
 func (f *fakeQueue) ListJobs(context.Context) ([]*job.Job, error)                        { return nil, nil }

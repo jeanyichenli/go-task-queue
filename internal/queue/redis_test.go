@@ -387,26 +387,6 @@ func TestRedisQueue_UpdateStartedAt(t *testing.T) {
 	}
 }
 
-func TestRedisQueue_UpdatePriority(t *testing.T) {
-	q, mr, cleanup := testQueue(t)
-	defer cleanup()
-	ctx := context.Background()
-
-	j := jobWithID("pri-1")
-	j.Priority = 0
-	mr.Set(jobKey(j.ID), string(mustMarshalJob(t, j)))
-
-	err := q.UpdatePriority(ctx, "pri-1", 10)
-	if err != nil {
-		t.Fatalf("UpdatePriority: %v", err)
-	}
-
-	got, _ := q.GetJob(ctx, "pri-1")
-	if got == nil || got.Priority != 10 {
-		t.Errorf("Priority = %v, want 10", got)
-	}
-}
-
 func TestRedisQueue_ListJobs(t *testing.T) {
 	q, mr, cleanup := testQueue(t)
 	defer cleanup()
