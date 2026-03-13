@@ -2,9 +2,19 @@ package queue
 
 import (
 	"context"
-	"go-task-queue/internal/job"
 	"time"
+
+	"go-task-queue/internal/job"
+	"go-task-queue/internal/logger"
 )
+
+// lg is the package logger; set from cmd via SetLogger after logger.SetDefault.
+var lg *logger.Logger
+
+// SetLogger assigns the logger used by RedisQueue and other queue implementations.
+func SetLogger(l *logger.Logger) {
+	lg = l
+}
 
 type Queue interface {
 	Enqueue(ctx context.Context, job *job.Job) error

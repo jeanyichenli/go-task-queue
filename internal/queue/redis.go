@@ -8,9 +8,18 @@ import (
 	"time"
 
 	"go-task-queue/internal/job"
+	"go-task-queue/internal/logger"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// qlog returns the configured package logger, or the process default if SetLogger was not called.
+func qlog() *logger.Logger {
+	if lg != nil {
+		return lg
+	}
+	return logger.Default()
+}
 
 const (
 	keyJobPrefix    = "job:"
@@ -40,19 +49,23 @@ func NewRedisQueue(opt *redis.Options) *RedisQueue {
 func (q *RedisQueue) Enqueue(ctx context.Context, j *job.Job) error {
 	data, err := json.Marshal(j)
 	if err != nil {
+		qlog().Error(logger.ClassQueue, "enqueue marshal job id=%s: %v", j.ID, err)
 		return fmt.Errorf("enqueue: marshal job: %w", err)
 	}
 
 	err = q.client.Set(ctx, jobKey(j.ID), data, 0).Err()
 	if err != nil {
+		qlog().Error(logger.ClassQueue, "enqueue store job id=%s: %v", j.ID, err)
 		return fmt.Errorf("enqueue: store job: %w", err)
 	}
 
 	err = q.client.LPush(ctx, keyQueuePending, j.ID).Err()
 	if err != nil {
+		qlog().Error(logger.ClassQueue, "enqueue push pending id=%s: %v", j.ID, err)
 		return fmt.Errorf("enqueue: push id: %w", err)
 	}
 
+	qlog().Debug(logger.ClassQueue, "enqueue id=%s type=%s", j.ID, j.Type)
 	return nil
 }
 
@@ -77,6 +90,7 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
 			if errors.Is(err, context.Canceled) {
 				return nil, nil
 			}
+			qlog().Error(logger.ClassQueue, "dequeue brpop: %v", err)
 			return nil, fmt.Errorf("dequeue: brpop: %w", err)
 		}
 
@@ -86,12 +100,14 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
 		// fetch the job from the Redis database
 		data, err := q.client.Get(ctx, jobKey(jobID)).Bytes()
 		if err != nil {
+			qlog().Error(logger.ClassQueue, "dequeue fetch job id=%s: %v", jobID, err)
 			return nil, fmt.Errorf("dequeue: fetch job: %w", err)
 		}
 
 		// unmarshal the job
 		var j job.Job
 		if err := json.Unmarshal(data, &j); err != nil {
+			qlog().Error(logger.ClassQueue, "dequeue unmarshal job id=%s: %v", jobID, err)
 			return nil, fmt.Errorf("dequeue: unmarshal job: %w", err)
 		}
 
@@ -100,9 +116,11 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (*job.Job, error) {
 		j.Status = job.StatusRunning
 		err = q.UpdateStatus(ctx, jobID, job.StatusRunning)
 		if err != nil {
+			qlog().Error(logger.ClassQueue, "dequeue update status id=%s: %v", jobID, err)
 			return nil, fmt.Errorf("dequeue: update status: %w", err)
 		}
 
+		qlog().Debug(logger.ClassQueue, "dequeue id=%s type=%s -> running", j.ID, j.Type)
 		return &j, nil
 	}
 }
@@ -200,7 +218,13 @@ func (q *RedisQueue) writeJobAndIndex(ctx context.Context, j *job.Job) error {
 
 // Close closes the Redis client.
 func (q *RedisQueue) Close(ctx context.Context) error {
-	return q.client.Close()
+	err := q.client.Close()
+	if err != nil {
+		qlog().Error(logger.ClassQueue, "close redis client: %v", err)
+	} else {
+		qlog().Info(logger.ClassQueue, "close redis client ok")
+	}
+	return err
 }
 
 // ListJobs returns all jobs (keys under job:*). Use with care on large data.

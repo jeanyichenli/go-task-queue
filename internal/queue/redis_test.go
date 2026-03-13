@@ -3,14 +3,22 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"testing"
 	"time"
 
 	"go-task-queue/internal/job"
+	"go-task-queue/internal/logger"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
+
+func TestMain(m *testing.M) {
+	logger.SetDefault(logger.New(io.Discard, logger.LevelError, nil))
+	SetLogger(logger.Default())
+	m.Run()
+}
 
 // testQueue returns a RedisQueue backed by a miniredis instance and a cleanup func.
 func testQueue(t *testing.T) (*RedisQueue, *miniredis.Miniredis, func()) {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,11 +14,16 @@ import (
 	"go-task-queue/internal/config"
 	"go-task-queue/internal/httpapi"
 	"go-task-queue/internal/job"
+	"go-task-queue/internal/logger"
 	"go-task-queue/internal/queue"
 	"go-task-queue/internal/worker"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// lg is the process-wide application logger. It is set in main after
+// logger.SetDefault so config (level, class filter) applies everywhere.
+var lg *logger.Logger
 
 // HandlerConfig describes how a particular job type should be handled.
 // It is loaded from an external JSON configuration file so users do not need
@@ -38,7 +42,13 @@ func main() {
 	config.BindFlags(&cfg)
 	flag.Parse()
 
-	log.Printf("starting go-task-queue service (redis=%s, workers=%d, http=%s)", cfg.RedisAddr, cfg.WorkerCount, cfg.HTTPAddr)
+	logger.SetDefault(logger.New(os.Stderr, logger.ParseLevel(cfg.LogLevel), logger.ParseClassList(cfg.LogClass)))
+	lg = logger.Default()
+	worker.SetLogger(lg)
+	httpapi.SetLogger(lg)
+	queue.SetLogger(lg)
+
+	lg.Info(logger.ClassCmd, "starting go-task-queue service (redis=%s, workers=%d, http=%s)", cfg.RedisAddr, cfg.WorkerCount, cfg.HTTPAddr)
 
 	// Root context for the whole service.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -57,14 +67,14 @@ func main() {
 	// starts in development.
 	handlerConfigs, err := loadHandlerConfigs(cfg.HandlersConfigPath)
 	if err != nil {
-		log.Printf("failed to load handler config from %q: %v; falling back to defaults", cfg.HandlersConfigPath, err)
+		lg.Warn(logger.ClassCmd, "failed to load handler config from %q: %v; falling back to defaults", cfg.HandlersConfigPath, err)
 		handlerConfigs = defaultHandlerConfigs()
 	}
 	handlers := buildHandlers(handlerConfigs, q)
 
 	pool := worker.NewWorkerPool(ctx, q, handlers, cfg.WorkerCount)
 	pool.Start()
-	log.Printf("worker pool started with %d workers", cfg.WorkerCount)
+	lg.Info(logger.ClassCmd, "worker pool started with %d workers", cfg.WorkerCount)
 
 	// HTTP server using internal httpapi package.
 	api := httpapi.NewServer(q)
@@ -72,9 +82,9 @@ func main() {
 
 	// Start HTTP server.
 	go func() {
-		log.Printf("http server listening on %s", cfg.HTTPAddr)
+		lg.Info(logger.ClassAPI, "http server listening on %s", cfg.HTTPAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("http server error: %v", err)
+			lg.Error(logger.ClassAPI, "http server error: %v", err)
 			cancel()
 		}
 	}()
@@ -85,9 +95,9 @@ func main() {
 
 	select {
 	case <-sigCh:
-		log.Printf("signal received, shutting down...")
+		lg.Info(logger.ClassCmd, "signal received, shutting down...")
 	case <-ctx.Done():
-		log.Printf("context cancelled, shutting down...")
+		lg.Info(logger.ClassCmd, "context cancelled, shutting down...")
 	}
 
 	// Begin graceful shutdown.
@@ -97,28 +107,28 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
-	log.Printf("shutdown: calling http server Shutdown")
+	lg.Info(logger.ClassCmd, "shutdown: calling http server Shutdown")
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("http server shutdown error: %v", err)
+		lg.Error(logger.ClassAPI, "http server shutdown error: %v", err)
 	}
-	log.Printf("shutdown: http server Shutdown complete")
+	lg.Info(logger.ClassCmd, "shutdown: http server Shutdown complete")
 
-	log.Printf("shutdown: calling worker pool Stop")
+	lg.Info(logger.ClassCmd, "shutdown: calling worker pool Stop")
 	pool.Stop()
-	log.Printf("shutdown: worker pool Stop complete")
+	lg.Info(logger.ClassCmd, "shutdown: worker pool Stop complete")
 
-	log.Printf("shutdown: calling queue Close")
+	lg.Info(logger.ClassCmd, "shutdown: calling queue Close")
 	if err := q.Close(shutdownCtx); err != nil {
-		log.Printf("queue close error: %v", err)
+		lg.Error(logger.ClassQueue, "queue close error: %v", err)
 	}
-	log.Printf("shutdown: queue Close complete")
+	lg.Info(logger.ClassCmd, "shutdown: queue Close complete")
 
-	log.Printf("shutdown: calling redis client Close")
+	lg.Info(logger.ClassSystem, "shutdown: calling redis client Close")
 	if err := rdb.Close(); err != nil {
-		log.Printf("redis client close error: %v", err)
+		lg.Error(logger.ClassSystem, "redis client close error: %v", err)
 	}
 
-	log.Printf("shutdown complete")
+	lg.Info(logger.ClassCmd, "shutdown complete")
 }
 
 // defaultHandlerConfigs returns an in-memory set of handler configurations used
@@ -126,80 +136,36 @@ func main() {
 func defaultHandlerConfigs() []HandlerConfig {
 	return []HandlerConfig{
 		{
-			Type:        "echo",
-			Target:      "mock://echo-service",
+			Type:           "echo",
+			Target:         "mock://echo-service",
 			TimeoutSeconds: 2,
-			MaxAttempts: 3,
+			MaxAttempts:    3,
 		},
-		// Additional handler types can be added here, for example:
-		// {
-		//     Type:        "email.send",
-		//     Target:      "http://email-service",
-		//     Timeout:     5 * time.Second,
-		//     MaxAttempts: 5,
-		// },
 	}
 }
 
 // buildHandlers constructs a map of WorkerPool handlers from HandlerConfig.
-// Each handler is currently a mocked implementation that just logs and marks
-// the job as completed. The real implementation can later perform RPC calls
-// to external microservices.
 func buildHandlers(cfgs []HandlerConfig, q queue.Queue) map[string]worker.Handler {
 	handlers := make(map[string]worker.Handler, len(cfgs))
 
 	for _, hc := range cfgs {
 		cfg := hc // capture loop variable
 
-		// Precompute timeout duration; if not set, use a small default.
 		timeout := 2 * time.Second
 		if cfg.TimeoutSeconds > 0 {
 			timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 		}
 
 		handlers[cfg.Type] = func(ctx context.Context, j *job.Job) error {
-			// Apply default MaxAttempts from config when the job does not set it.
 			if j.MaxAttempts == 0 && cfg.MaxAttempts > 0 {
 				j.MaxAttempts = cfg.MaxAttempts
 			}
 
-			// Mocked “RPC call” – for now we just log. In a real implementation,
-			// this is where you would perform an HTTP/gRPC/etc. call to the
-			// microservice identified by cfg.Target, passing j.Payload.
 			payload, _ := json.Marshal(j.Payload)
-			log.Printf(
-				"handler type=%s target=%s timeout=%s job_id=%s payload=%s (mocked RPC)",
-				cfg.Type,
-				cfg.Target,
-				timeout.String(),
-				j.ID,
-				string(payload),
+			lg.Info(logger.ClassJob, "handler type=%s target=%s timeout=%s job_id=%s payload=%s (mocked RPC)",
+				cfg.Type, cfg.Target, timeout.String(), j.ID, string(payload),
 			)
 
-			// Example future RPC flow (commented until implemented):
-			//
-			// callCtx, cancel := context.WithTimeout(ctx, timeout)
-			// defer cancel()
-			//
-			// reqBody, err := json.Marshal(j.Payload)
-			// if err != nil {
-			//     return err
-			// }
-			// httpReq, err := http.NewRequestWithContext(callCtx, http.MethodPost, cfg.Target, bytes.NewReader(reqBody))
-			// if err != nil {
-			//     return err
-			// }
-			// httpReq.Header.Set("Content-Type", "application/json")
-			// resp, err := http.DefaultClient.Do(httpReq)
-			// if err != nil {
-			//     return err
-			// }
-			// defer resp.Body.Close()
-			// if resp.StatusCode >= 500 {
-			//     return fmt.Errorf("remote service error: %s", resp.Status)
-			// }
-
-			// For now, pretend the RPC succeeded and mark the job as completed.
 			if err := q.UpdateStatus(ctx, j.ID, job.StatusCompleted); err != nil {
 				return err
 			}
@@ -210,17 +176,6 @@ func buildHandlers(cfgs []HandlerConfig, q queue.Queue) map[string]worker.Handle
 	return handlers
 }
 
-// loadHandlerConfigs reads handler configuration from a JSON file at the given
-// path. The JSON format is:
-//
-// [
-//   {
-//     "type": "echo",
-//     "target": "mock://echo-service",
-//     "timeout_seconds": 2,
-//     "max_attempts": 3
-//   }
-// ]
 func loadHandlerConfigs(path string) ([]HandlerConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

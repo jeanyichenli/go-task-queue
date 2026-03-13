@@ -3,13 +3,21 @@ package worker
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"go-task-queue/internal/job"
+	"go-task-queue/internal/logger"
 	"go-task-queue/internal/queue"
 )
+
+func TestMain(m *testing.M) {
+	logger.SetDefault(logger.New(io.Discard, logger.LevelError, nil))
+	SetLogger(logger.Default())
+	m.Run()
+}
 
 // fakeQueue is a minimal in-memory implementation of queue.Queue used for tests.
 type fakeQueue struct {

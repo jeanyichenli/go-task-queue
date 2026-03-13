@@ -7,8 +7,17 @@ import (
 	"time"
 
 	"go-task-queue/internal/job"
+	"go-task-queue/internal/logger"
 	"go-task-queue/internal/queue"
 )
+
+// lg is the package logger; set from cmd via SetLogger after logger.SetDefault.
+var lg *logger.Logger
+
+// SetLogger assigns the logger used by this package (typically the same instance as main).
+func SetLogger(l *logger.Logger) {
+	lg = l
+}
 
 // Server provides HTTP handlers backed by a queue.Queue.
 type Server struct {
@@ -70,6 +79,7 @@ func (s *Server) handleJobByID(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	j, err := s.queue.GetJob(ctx, id)
 	if err != nil {
+		lg.Error(logger.ClassAPI, "GET /jobs/%s failed: %v", id, err)
 		http.Error(w, "failed to get job", http.StatusInternalServerError)
 		return
 	}
@@ -114,9 +124,11 @@ func (s *Server) handleEnqueueJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.queue.Enqueue(ctx, j); err != nil {
+		lg.Error(logger.ClassAPI, "POST /jobs enqueue failed: %v", err)
 		http.Error(w, "failed to enqueue job", http.StatusInternalServerError)
 		return
 	}
+	lg.Info(logger.ClassAPI, "POST /jobs enqueued id=%s type=%s", j.ID, j.Type)
 
 	writeJSON(w, map[string]any{
 		"id":     j.ID,
@@ -128,9 +140,11 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	jobs, err := s.queue.ListJobs(ctx)
 	if err != nil {
+		lg.Error(logger.ClassAPI, "GET /jobs list failed: %v", err)
 		http.Error(w, "failed to list jobs", http.StatusInternalServerError)
 		return
 	}
+	lg.Debug(logger.ClassAPI, "GET /jobs ok count=%d", len(jobs))
 	writeJSON(w, jobs)
 }
 
@@ -141,4 +155,3 @@ func writeJSON(w http.ResponseWriter, v any) {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 }
-
