@@ -132,17 +132,38 @@ go build ./cmd/go-task-queue
 
 ### Configure
 
-Configuration is taken from environment variables, with command-line flags as overrides:
+Configuration is loaded from **environment variables** first. **Command-line flags** override those values for the same settings (call `flag.Parse()` after flags are bound).
 
-- **Environment variables**
-  - `REDIS_ADDR`: Redis address, default `localhost:6379`.
-  - `WORKERS`: number of worker goroutines, default `4`.
-  - `HTTP_ADDR`: HTTP listen address, default `:8080`.
+#### Environment variables
 
-- **Flags**
-  - `--redis-addr`: overrides `REDIS_ADDR`.
-  - `--workers`: overrides `WORKERS`.
-  - `--http-addr`: overrides `HTTP_ADDR`.
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `REDIS_ADDR` | Redis server address (`host:port`). | `localhost:6379` |
+| `WORKERS` | Number of worker goroutines that dequeue and run jobs. Must be a positive integer. | `4` |
+| `HTTP_ADDR` | HTTP listen address for the API (e.g. `:8080`). | `:8080` |
+| `HANDLERS_CONFIG` | Path to the JSON file that defines job type → handler config (targets, timeouts, max attempts). | `config/handlers.json` |
+| `LOG_LEVEL` | Minimum log level: `debug`, `info`, `warn`, or `error`. Messages below this level are omitted (`debug` is most verbose). | `info` |
+| `LOG_CLASS` | Comma-separated log **classes** to allow, or empty for **all**. Classes: `cmd` (startup/shutdown), `api` (HTTP), `worker` (pool/dequeue), `queue` (Redis queue ops), `job` (handlers), `system` (e.g. Redis client). Example: `worker,job` only logs those two. | *(empty — all classes)* |
+
+#### Flags (override env)
+
+| Flag | Meaning | Default (if unset) |
+|------|---------|--------------------|
+| `--redis-addr` | Same as `REDIS_ADDR`. | `localhost:6379` |
+| `--workers` | Same as `WORKERS`. | `4` |
+| `--http-addr` | Same as `HTTP_ADDR`. | `:8080` |
+| `--handlers-config` | Same as `HANDLERS_CONFIG`. | `config/handlers.json` |
+| `--log-level` | Same as `LOG_LEVEL`. | `info` |
+| `--log-class` | Same as `LOG_CLASS`. | *(empty — all classes)* |
+
+### Log line format
+
+Each line is UTC RFC3339 nano, level, class, then message, for example:
+
+```text
+2025-03-13T12:00:00.123456789Z INFO  [cmd] starting go-task-queue service (redis=...)
+2025-03-13T12:00:00.2Z       INFO  [worker] worker 0: dequeued job id=... type=echo
+```
 
 ### Run
 
@@ -194,8 +215,6 @@ Planned next steps (not implemented yet):
 - **Additional features**
   - Priority-aware scheduling.
   - Dead letter queue for permanently failed jobs, plus tools to inspect, analyze, and optionally reprocess DLQ items.
-  - Centralized logging/observability for workers, queue operations, and job lifecycle.
-  - Configurable structured logging with levels (error, warn, info, debug) and pluggable backends.
   - Dockerfile and Docker Compose setup for local and containerized deployment (Redis + service).
 
 <!-- For now, the focus is on a clean, testable core that can be reused when the outer service and APIs are added later. -->
