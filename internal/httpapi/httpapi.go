@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"go-task-queue/internal/dlq"
 	"go-task-queue/internal/job"
 	"go-task-queue/internal/logger"
 	"go-task-queue/internal/queue"
@@ -22,11 +23,12 @@ func SetLogger(l *logger.Logger) {
 // Server provides HTTP handlers backed by a queue.Queue.
 type Server struct {
 	queue queue.Queue
+	dlq   dlq.DLQ
 }
 
 // NewServer constructs a new HTTP API server.
-func NewServer(q queue.Queue) *Server {
-	return &Server{queue: q}
+func NewServer(q queue.Queue, d dlq.DLQ) *Server {
+	return &Server{queue: q, dlq: d}
 }
 
 // HTTPServer constructs an *http.Server with all routes registered.
@@ -48,6 +50,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/jobs", s.handleJobs)
 	mux.HandleFunc("/jobs/", s.handleJobByID)
+	mux.HandleFunc("/dlq/jobs", s.handleDLQJobs)
+	mux.HandleFunc("/dlq/jobs/", s.handleDLQJobByID)
+	mux.HandleFunc("/dlq/metrics", s.handleDLQMetrics)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +149,130 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	lg.Debug(logger.ClassAPI, "GET /jobs ok count=%d", len(jobs))
 	writeJSON(w, jobs)
+}
+
+func (s *Server) handleDLQJobs(w http.ResponseWriter, r *http.Request) {
+	if s.dlq == nil {
+		http.Error(w, "dlq not configured", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.handleListDLQJobs(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleDLQJobByID(w http.ResponseWriter, r *http.Request) {
+	if s.dlq == nil {
+		http.Error(w, "dlq not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.URL.Path[len("/dlq/jobs/"):]
+	if id == "" {
+		http.Error(w, "missing job id", http.StatusBadRequest)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetDLQJob(w, r, id)
+	case http.MethodPost:
+		if r.URL.Path == "/dlq/jobs/"+id+"/requeue" {
+			s.handleRequeueDLQJob(w, r, id)
+			return
+		}
+		http.Error(w, "not found", http.StatusNotFound)
+	case http.MethodDelete:
+		s.handleDeleteDLQJob(w, r, id)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleDLQMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.dlq == nil {
+		http.Error(w, "dlq not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx := r.Context()
+	m, err := s.dlq.Metrics(ctx)
+	if err != nil {
+		lg.Error(logger.ClassAPI, "GET /dlq/metrics failed: %v", err)
+		http.Error(w, "failed to get dlq metrics", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, m)
+}
+
+func (s *Server) handleListDLQJobs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	jobType := q.Get("type")
+	limitStr := q.Get("limit")
+	var limit int64 = 50
+	if limitStr != "" {
+		if v, err := strconv.ParseInt(limitStr, 10, 64); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	filter := dlq.Filter{
+		Type:  jobType,
+		Limit: limit,
+	}
+	jobs, err := s.dlq.ListDLQJobs(ctx, filter)
+	if err != nil {
+		lg.Error(logger.ClassAPI, "GET /dlq/jobs failed: %v", err)
+		http.Error(w, "failed to list dlq jobs", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, jobs)
+}
+
+func (s *Server) handleGetDLQJob(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	dj, err := s.dlq.GetDLQJob(ctx, id)
+	if err != nil {
+		lg.Error(logger.ClassAPI, "GET /dlq/jobs/%s failed: %v", id, err)
+		http.Error(w, "failed to get dlq job", http.StatusInternalServerError)
+		return
+	}
+	if dj == nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, dj)
+}
+
+func (s *Server) handleRequeueDLQJob(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	dj, err := s.dlq.RequeueDLQJob(ctx, id)
+	if err != nil {
+		lg.Error(logger.ClassAPI, "POST /dlq/jobs/%s/requeue failed: %v", id, err)
+		http.Error(w, "failed to requeue dlq job", http.StatusInternalServerError)
+		return
+	}
+	if dj == nil {
+		http.NotFound(w, r)
+		return
+	}
+	lg.Info(logger.ClassAPI, "POST /dlq/jobs/%s/requeue ok", id)
+	writeJSON(w, dj)
+}
+
+func (s *Server) handleDeleteDLQJob(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	if err := s.dlq.DeleteDLQJob(ctx, id); err != nil {
+		lg.Error(logger.ClassAPI, "DELETE /dlq/jobs/%s failed: %v", id, err)
+		http.Error(w, "failed to delete dlq job", http.StatusInternalServerError)
+		return
+	}
+	lg.Info(logger.ClassAPI, "DELETE /dlq/jobs/%s ok", id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
