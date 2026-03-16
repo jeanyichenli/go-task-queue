@@ -8,8 +8,8 @@ const (
 	StatusPending   Status = "pending"
 	StatusRunning   Status = "running"
 	StatusCompleted Status = "completed"
-	StatusFailed    Status = "failed"
-	StatusCancelled Status = "cancelled"
+	// StatusDeadLetter marks jobs that have been moved to the dead letter queue.
+	StatusDeadLetter Status = "dead_letter"
 )
 
 // Job represents a unit of work in the task queue.

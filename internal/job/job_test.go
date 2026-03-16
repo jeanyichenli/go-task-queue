@@ -13,8 +13,6 @@ func TestStatus_String(t *testing.T) {
 		{StatusPending, "pending"},
 		{StatusRunning, "running"},
 		{StatusCompleted, "completed"},
-		{StatusFailed, "failed"},
-		{StatusCancelled, "cancelled"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
@@ -97,7 +95,7 @@ func TestJob_RetryState(t *testing.T) {
 		Attempt:     2,
 		MaxAttempts: 3,
 		LastError:   "connection refused",
-		Status:      StatusFailed,
+		Status:      StatusDeadLetter,
 	}
 	if j.ID != "job-retry" {
 		t.Errorf("ID = %q, want job-retry", j.ID)
@@ -114,7 +112,7 @@ func TestJob_RetryState(t *testing.T) {
 	if j.LastError != "connection refused" {
 		t.Errorf("LastError = %q, want connection refused", j.LastError)
 	}
-	if j.Status != StatusFailed {
-		t.Errorf("Status = %q, want failed", j.Status)
+	if j.Status != StatusDeadLetter {
+		t.Errorf("Status = %q, want dead_letter", j.Status)
 	}
 }
