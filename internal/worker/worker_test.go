@@ -75,7 +75,7 @@ func TestWorkerPoolProcessesJobs(t *testing.T) {
 		},
 	}
 
-	wp := NewWorkerPool(ctx, q, handlers, 3)
+	wp := NewWorkerPool(ctx, q, handlers, 3, nil)
 	wp.Start()
 	defer wp.Stop()
 
@@ -107,7 +107,7 @@ func TestWorkerPoolStopCancelsWorkers(t *testing.T) {
 	ctx := context.Background()
 	q := newFakeQueue(0)
 
-	wp := NewWorkerPool(ctx, q, nil, 1)
+	wp := NewWorkerPool(ctx, q, nil, 1, nil)
 	wp.Start()
 
 	done := make(chan struct{})

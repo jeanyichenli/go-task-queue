@@ -79,6 +79,24 @@ func main() {
 	}
 	handlers := buildHandlers(handlerConfigs, q)
 
+	// Ensure we have at least one worker, and preferably at least as many
+	// workers as configured handler types. This is a soft rule: we log and
+	// adjust the worker count upward when it is lower than the number of
+	// handlers, but do not fail startup.
+	if cfg.WorkerCount < 1 {
+		lg.Warn(logger.ClassCmd, "worker count %d is invalid; defaulting to 1", cfg.WorkerCount)
+		cfg.WorkerCount = 1
+	}
+	if cfg.WorkerCount < len(handlers) {
+		lg.Warn(
+			logger.ClassCmd,
+			"worker count (%d) is less than number of handler types (%d); increasing workers to match",
+			cfg.WorkerCount,
+			len(handlers),
+		)
+		cfg.WorkerCount = len(handlers)
+	}
+
 	pool := worker.NewWorkerPool(ctx, q, handlers, cfg.WorkerCount, dlqStore)
 	pool.Start()
 	lg.Info(logger.ClassCmd, "worker pool started with %d workers", cfg.WorkerCount)
@@ -172,6 +190,12 @@ func buildHandlers(cfgs []HandlerConfig, q queue.Queue) map[string]worker.Handle
 			lg.Info(logger.ClassJob, "handler type=%s target=%s timeout=%s job_id=%s payload=%s (mocked RPC)",
 				cfg.Type, cfg.Target, timeout.String(), j.ID, string(payload),
 			)
+
+			// Special handler for testing DLQ: always_fail returns an error so
+			// jobs eventually exceed MaxAttempts and are moved to the DLQ.
+			if cfg.Type == "always_fail" {
+				return fmt.Errorf("forced failure for job id=%s", j.ID)
+			}
 
 			if err := q.UpdateStatus(ctx, j.ID, job.StatusCompleted); err != nil {
 				return err

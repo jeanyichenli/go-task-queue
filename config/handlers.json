@@ -4,6 +4,12 @@
     "target": "mock://echo-service",
     "timeout_seconds": 2,
     "max_attempts": 3
+  },
+  {
+    "type": "always_fail",
+    "target": "mock://always-fail-service",
+    "timeout_seconds": 2,
+    "max_attempts": 2
   }
 ]
 
