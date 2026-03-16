@@ -4,6 +4,7 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	internalmongo "go-task-queue/internal/mongo"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // Level orders verbosity. A configured minimum level suppresses lower levels.
@@ -65,6 +70,18 @@ type Logger struct {
 	min         Level
 	allowClass  map[Class]struct{} // nil or empty internal map means allow all
 	allowAllCls bool
+
+	// mongo logging (optional).
+	mongoOnce sync.Once
+	mongoErr  error
+}
+
+// logEntry is the MongoDB representation of a log line.
+type logEntry struct {
+	Timestamp time.Time `bson:"ts"`
+	Level     string    `bson:"level"`
+	Class     string    `bson:"class"`
+	Message   string    `bson:"message"`
 }
 
 // New builds a Logger. If allowClasses is nil or empty, all classes are allowed.
@@ -110,10 +127,48 @@ func (l *Logger) log(level Level, class Class, format string, args ...any) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	ts := time.Now().UTC().Format(time.RFC3339Nano)
+
+	now := time.Now().UTC()
+	ts := now.Format(time.RFC3339Nano)
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("%s %-5s [%s] %s\n", ts, levelNames[level], class, msg)
 	_, _ = io.WriteString(l.out, line)
+
+	// Best-effort write to MongoDB; failures do not affect the main flow.
+	l.mongoOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		mc, err := internalmongo.NewClient(ctx)
+		if err != nil {
+			l.mongoErr = err
+			return
+		}
+		_ = mc // only ensure client is initialized; collection fetched below per call
+	})
+	if l.mongoErr != nil {
+		return
+	}
+
+	go func(le logEntry) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		mc, err := internalmongo.NewClient(ctx)
+		if err != nil {
+			return
+		}
+		coll := mc.LogCollection()
+		_, _ = coll.InsertOne(ctx, bson.M{
+			"ts":     le.Timestamp,
+			"level":  le.Level,
+			"class":  le.Class,
+			"message": le.Message,
+		})
+	}(logEntry{
+		Timestamp: now,
+		Level:     levelNames[level],
+		Class:     string(class),
+		Message:   msg,
+	})
 }
 
 func (l *Logger) Debug(c Class, format string, args ...any) { l.log(LevelDebug, c, format, args...) }

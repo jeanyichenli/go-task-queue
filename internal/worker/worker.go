@@ -2,12 +2,14 @@ package worker
 
 import (
 	"context"
+	"sync"
+	"time"
+
 	"go-task-queue/internal/backoff"
+	"go-task-queue/internal/dlq"
 	"go-task-queue/internal/job"
 	"go-task-queue/internal/logger"
 	"go-task-queue/internal/queue"
-	"sync"
-	"time"
 )
 
 // lg is the package logger; set from cmd via SetLogger after logger.SetDefault.
@@ -30,9 +32,11 @@ type WorkerPool struct { // WorkerPool is a pool of workers that can run jobs
 
 	// backoff is used when dequeueing jobs or running handlers fails.
 	backoff *backoff.Exponential
+
+	dlq dlq.DLQ
 }
 
-func NewWorkerPool(ctx context.Context, q queue.Queue, handlers map[string]Handler, numberOfWorkers int) *WorkerPool {
+func NewWorkerPool(ctx context.Context, q queue.Queue, handlers map[string]Handler, numberOfWorkers int, d dlq.DLQ) *WorkerPool {
 	return &WorkerPool{
 		ctx:             ctx,
 		Queue:           q,
@@ -40,6 +44,7 @@ func NewWorkerPool(ctx context.Context, q queue.Queue, handlers map[string]Handl
 		numberOfWorkers: numberOfWorkers,
 		wg:              sync.WaitGroup{},
 		backoff:         backoff.NewExponential(100*time.Millisecond, 5*time.Second),
+		dlq:             d,
 	}
 }
 
@@ -96,7 +101,14 @@ func (wp *WorkerPool) runWorker(id int) {
 					_ = wp.UpdateLastError(wp.ctx, j.ID, err.Error())
 
 					if j.MaxAttempts > 0 && j.Attempt >= j.MaxAttempts {
-						_ = wp.UpdateStatus(wp.ctx, j.ID, job.StatusFailed)
+						_ = wp.UpdateStatus(wp.ctx, j.ID, job.StatusDeadLetter)
+						if wp.dlq != nil {
+							if err := wp.dlq.MoveToDLQ(wp.ctx, j, "max_attempts_exceeded"); err != nil {
+								lg.Error(logger.ClassWorker, "worker %d: failed to move job id=%s to DLQ: %v", id, j.ID, err)
+							} else {
+								lg.Warn(logger.ClassWorker, "worker %d: moved job id=%s to DLQ after max attempts", id, j.ID)
+							}
+						}
 					} else {
 						j.Status = job.StatusPending
 						_ = wp.UpdateStatus(wp.ctx, j.ID, job.StatusPending)

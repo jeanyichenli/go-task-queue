@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go-task-queue/internal/config"
+	"go-task-queue/internal/dlq"
 	"go-task-queue/internal/httpapi"
 	"go-task-queue/internal/job"
 	"go-task-queue/internal/logger"
@@ -62,6 +63,12 @@ func main() {
 		Addr: cfg.RedisAddr,
 	})
 
+	// Set up Mongo-backed DLQ.
+	dlqStore, err := dlq.NewMongoDLQ(ctx)
+	if err != nil {
+		lg.Warn(logger.ClassSystem, "failed to initialize Mongo DLQ: %v; DLQ endpoints disabled", err)
+	}
+
 	// Build worker handlers from external configuration. If loading fails for
 	// any reason, fall back to a small in-memory default so the service still
 	// starts in development.
@@ -72,12 +79,12 @@ func main() {
 	}
 	handlers := buildHandlers(handlerConfigs, q)
 
-	pool := worker.NewWorkerPool(ctx, q, handlers, cfg.WorkerCount)
+	pool := worker.NewWorkerPool(ctx, q, handlers, cfg.WorkerCount, dlqStore)
 	pool.Start()
 	lg.Info(logger.ClassCmd, "worker pool started with %d workers", cfg.WorkerCount)
 
 	// HTTP server using internal httpapi package.
-	api := httpapi.NewServer(q)
+	api := httpapi.NewServer(q, dlqStore)
 	srv := api.HTTPServer(cfg.HTTPAddr)
 
 	// Start HTTP server.
