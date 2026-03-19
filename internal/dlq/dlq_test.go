@@ -1,7 +1,6 @@
 package dlq
 
-import
-(
+import (
 	"context"
 	"testing"
 	"time"
@@ -20,6 +19,10 @@ func setupTestDLQ(t *testing.T) (*MongoDLQ, func()) {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
 		t.Fatalf("failed to connect to mongo: %v", err)
+	}
+	if err := client.Ping(ctx, nil); err != nil {
+		_ = client.Disconnect(context.Background())
+		t.Fatalf("failed to ping mongo: %v", err)
 	}
 
 	db := client.Database("go_task_queue_test_dlq")

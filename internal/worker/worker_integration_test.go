@@ -10,6 +10,7 @@ import (
 	"go-task-queue/internal/dlq"
 	"go-task-queue/internal/job"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -65,6 +66,10 @@ func TestWorkerPoolFailsToProcessJobsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to mongo: %v", err)
 	}
+	if err := client.Ping(mctx, nil); err != nil {
+		_ = client.Disconnect(context.Background())
+		t.Fatalf("failed to ping mongo: %v", err)
+	}
 	db := client.Database("go_task_queue_test_worker_dlq")
 	coll := db.Collection("dlq_jobs_worker_test")
 	if err := coll.Drop(mctx); err != nil {
@@ -109,7 +114,7 @@ func TestWorkerPoolFailsToProcessJobsIntegration(t *testing.T) {
 			t.Fatalf("expected at least 1 job in DLQ, but timed out (handlerCalls=%d)", handlerCalls)
 		case <-time.After(50 * time.Millisecond):
 			// Count documents in the DLQ collection.
-			count, err := coll.CountDocuments(context.Background(), struct{}{})
+			count, err := coll.CountDocuments(context.Background(), bson.D{})
 			if err != nil {
 				t.Fatalf("CountDocuments error: %v", err)
 			}
