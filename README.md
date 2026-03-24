@@ -12,6 +12,38 @@ This project is a small experimental task-queue service written in Go. It is bui
 
 ---
 
+## Project Structure
+
+### Block diagram
+
+(TODO)
+
+### Repository layout
+
+```text
+go-task-queue/
+├── cmd/
+│   └── go-task-queue/          # Service entrypoint (main)
+├── config/
+│   └── handlers.json           # Default handler config baked into image
+├── deploy/
+│   ├── docker-compose.yml      # Deploy compose file
+│   └── handlers.user.json      # Runtime-mounted handler config
+├── internal/
+│   ├── backoff/                # Exponential backoff logic
+│   ├── config/                 # Env/flag config loading
+│   ├── dlq/                    # Dead letter queue operations (MongoDB)
+│   ├── httpapi/                # HTTP handlers and routes
+│   ├── job/                    # Job model and status
+│   ├── logger/                 # Structured logging
+│   ├── queue/                  # Queue abstraction + Redis implementation
+│   └── worker/                 # Worker pool and handler execution
+├── .github/workflows/
+│   └── docker-image.yml        # CI/CD for Docker image build and push
+├── Dockerfile                  # Multi-stage image build
+└── README.md
+```
+
 ## Job model
 
 Jobs are defined in `internal/job/job.go`.
@@ -121,8 +153,6 @@ metadata (`Attempt`, `MaxAttempts`, `LastError`) to control retries:
 
 ## Running the service
 
-The repository now includes a runnable service binary in `cmd/go-task-queue`.
-
 ### Build
 
 ```bash
@@ -170,7 +200,14 @@ Each line is UTC RFC3339 nano, level, class, then message, for example:
 
 ### Run
 
-Example:
+You can run the service with either deployment method:
+
+#### Method 1: Run binary directly
+
+Before starting the service with this method below, make sure these dependencies are running:
+
+- Redis (default `localhost:6379`).
+- MongoDB (default `mongodb://localhost:27017`).
 
 ```bash
 REDIS_ADDR=localhost:6379 \
@@ -187,28 +224,101 @@ This will:
 - Start a `WorkerPool` with the configured number of workers and handlers from `config/handlers.json`.
 - Start an HTTP server on the configured address.
 
+Stop:
+
+- Press `Ctrl+C` in the terminal where `./go-task-queue` is running.
+
+#### Method 2: Deploy with Docker Compose
+
+1. Move into the deploy directory:
+
+```bash
+cd deploy
+```
+
+2. Pull the image and start services:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+3. Configure handlers at runtime (no image rebuild needed):
+
+- Edit `deploy/handlers.user.json` on the host.
+- The compose file mounts it read-only to `/app/config/handlers.user.json`.
+- By default, `HANDLERS_CONFIG` points to `/app/config/handlers.user.json`.
+
+If you want to use the image-baked default instead, override:
+
+```bash
+HANDLERS_CONFIG=/app/config/handlers.json docker compose up -d
+```
+
+4. Verify:
+
+```bash
+docker compose ps
+curl http://localhost:8080/health
+```
+
+5. Stop:
+
+```bash
+docker compose down
+```
+
+### Makefile shortcuts
+
+You can use `Makefile` targets to simplify local development and deployment commands:
+
+```bash
+# Show all available targets
+make help
+
+# Build local binary
+make build
+
+# Build and run binary (requires Redis + MongoDB running)
+make run
+
+# Start Redis + MongoDB via compose, then run binary locally
+make run-with-deps
+
+# Start all deploy compose services (app + Redis + MongoDB)
+make compose-up
+
+# Check compose service status
+make compose-ps
+
+# Stream compose logs
+make compose-logs
+
+# Stop compose services
+make compose-down
+
+# Run tests
+make test
+
+# Remove built binary
+make clean
+```
+
 ### HTTP API
 
 HTTP endpoints are provided by `internal/httpapi/httpapi.go`:
 
-- `GET /health`: basic health check, returns `200 OK` with body `ok`.
-- `POST /jobs`: enqueue a new job.
-  - Request JSON body:
-    - `type` (string, required): job type (e.g. `"echo"` or `"always_fail"`).
-    - `payload` (object, optional): arbitrary JSON payload.
-    - `max_attempts` (int, optional): maximum retries before moving to the DLQ (overrides handler config).
-  - Response JSON:
-    - `id`: job ID.
-    - `status`: initial status (`pending`).
-- `GET /jobs`: list all jobs (uses `ListJobs`).
-- `GET /jobs/{id}`: get a single job by ID, returns `404` if not found.
-- `GET /dlq/jobs`: list DLQ jobs, with optional query params:
-  - `type`: filter by job type.
-  - `limit`: maximum number of jobs to return (default 50).
-- `GET /dlq/jobs/{id}`: get a single DLQ job by original job ID.
-- `POST /dlq/jobs/{id}/requeue`: mark a DLQ job as requeued (and, in future, re-enqueue it).
-- `DELETE /dlq/jobs/{id}`: delete a DLQ job document.
-- `GET /dlq/metrics`: summary DLQ metrics (total, by type, oldest/newest).
+| API name          | Method + path                         | Request body example                                                                                             | Optional headers                 | Success status   | Failure status                                                                                                       | Response body example                                                                                      |
+| ----------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Health check      | `GET /health`                         | None                                                                                                             | None                             | `200 OK`         | `405 Method Not Allowed`                                                                                             | Plain text: `ok`                                                                                           |
+| Enqueue job       | `POST /jobs`                          | JSON object: `{ "type": "string (required)", "payload": "object (optional)", "max_attempts": "int (optional)" }` | `Content-Type: application/json` | `200 OK`         | `400 Bad Request`, `405 Method Not Allowed`, `500 Internal Server Error`                                             | JSON object: `{ "id": "string", "status": "pending" }`                                                     |
+| List jobs         | `GET /jobs`                           | None                                                                                                             | None                             | `200 OK`         | `405 Method Not Allowed`, `500 Internal Server Error`                                                                | JSON array: `[ { "id": "string", "type": "string", "status": "string" } ]`                                 |
+| Get job by ID     | `GET /jobs/{id}`                      | None                                                                                                             | None                             | `200 OK`         | `400 Bad Request`, `404 Not Found`, `405 Method Not Allowed`, `500 Internal Server Error`                            | JSON object: `{ "id": "string", "type": "string", "status": "string", "attempt": 0 }`                      |
+| List DLQ jobs     | `GET /dlq/jobs?type=<type>&limit=<n>` | None (query params only)                                                                                         | None                             | `200 OK`         | `405 Method Not Allowed`, `500 Internal Server Error`, `503 Service Unavailable`                                     | JSON array: `[ { "job_id": "string", "type": "string", "status": "dead_letter" } ]`                        |
+| Get DLQ job by ID | `GET /dlq/jobs/{id}`                  | None                                                                                                             | None                             | `200 OK`         | `400 Bad Request`, `404 Not Found`, `405 Method Not Allowed`, `500 Internal Server Error`, `503 Service Unavailable` | JSON object: `{ "job_id": "string", "type": "string", "status": "dead_letter" }`                           |
+| Requeue DLQ job   | `POST /dlq/jobs/{id}/requeue`         | None                                                                                                             | None                             | `200 OK`         | `400 Bad Request`, `404 Not Found`, `405 Method Not Allowed`, `500 Internal Server Error`, `503 Service Unavailable` | JSON object: `{ "job_id": "string", "status": "requeued" }`                                                |
+| Delete DLQ job    | `DELETE /dlq/jobs/{id}`               | None                                                                                                             | None                             | `204 No Content` | `400 Bad Request`, `405 Method Not Allowed`, `500 Internal Server Error`, `503 Service Unavailable`                  | Empty body                                                                                                 |
+| DLQ metrics       | `GET /dlq/metrics`                    | None                                                                                                             | None                             | `200 OK`         | `405 Method Not Allowed`, `500 Internal Server Error`, `503 Service Unavailable`                                     | JSON object: `{ "total": 12, "by_type": { "always_fail": 12 }, "oldest": "RFC3339", "newest": "RFC3339" }` |
 
 Example usage:
 
@@ -255,10 +365,89 @@ curl http://localhost:8080/dlq/metrics
 
 Logs for both flows are written to stdout and to the Mongo `log_entries` collection for later inspection.
 
-## Future work
+### Check logs in MongoDB
 
-Planned next steps:
+Default log storage settings:
 
-- **Additional features**
-  - Makefile for binary file building
-  - Dockerfile and Docker Compose setup for local and containerized deployment (MongoDB + Redis + service)
+- Database: `go_task_queue` (from `MONGO_DB`)
+- Collection: `log_entries` (from `MONGO_LOG_COLLECTION`)
+
+Using `mongosh` from host:
+
+```bash
+mongosh "mongodb://localhost:27017/go_task_queue"
+```
+
+Then run:
+
+```javascript
+// Latest 20 logs (newest first)
+db.log_entries.find().sort({ ts: -1 }).limit(20);
+
+// Only error logs
+db.log_entries.find({ level: "error" }).sort({ ts: -1 }).limit(20);
+
+// Filter by class, for example worker
+db.log_entries.find({ class: "worker" }).sort({ ts: -1 }).limit(20);
+
+// Total number of log entries
+db.log_entries.countDocuments();
+```
+
+If MongoDB is running via Docker Compose:
+
+```bash
+cd deploy
+docker compose exec mongo mongosh "mongodb://localhost:27017/go_task_queue"
+```
+
+## Docker and CI/CD (Docker Hub + Compose)
+
+This repo includes:
+
+- `Dockerfile`: multi-stage build that compiles `cmd/go-task-queue` and ships a minimal runtime image.
+- `deploy/docker-compose.yml`: deploy compose file for app + Redis + MongoDB.
+- `deploy/handlers.user.json`: runtime handler config mounted into the app container.
+- `.env.example`: sample values used by this service.
+- `.github/workflows/docker-image.yml`: GitHub Actions workflow that runs tests, then builds and pushes Docker images to Docker Hub on `main`.
+
+### Deploy directory structure (compose + mounted config)
+
+For operators who only deploy (without source edits), a common setup is a small directory containing only:
+
+```text
+deploy/
+  docker-compose.yml
+  handlers.user.json
+```
+
+In that case, set the app volume in `docker-compose.yml` to:
+
+```yaml
+volumes:
+  - ./handlers.user.json:/app/config/handlers.user.json:ro
+```
+
+This follows the common production pattern of immutable image + external runtime config.
+
+### CI/CD with Docker Hub
+
+Set these GitHub repository secrets:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+Workflow behavior:
+
+- On pull requests: run `go test ./...`.
+- On pushes to `main`: run tests, then build and push:
+  - `<DOCKERHUB_USERNAME>/go-task-queue:latest`
+  - `<DOCKERHUB_USERNAME>/go-task-queue:sha-<short-commit>`
+
+To deploy updates on your target machine:
+
+```bash
+cd deploy
+docker compose pull
+docker compose up -d
+```
