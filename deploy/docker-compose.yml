@@ -13,13 +13,15 @@ services:
       REDIS_ADDR: redis:6379
       WORKERS: ${WORKERS:-4}
       HTTP_ADDR: :8080
-      HANDLERS_CONFIG: /app/config/handlers.json
+      HANDLERS_CONFIG: ${HANDLERS_CONFIG:-/app/config/handlers.user.json}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_CLASS: ${LOG_CLASS:-}
       MONGODB_URI: mongodb://mongo:27017
       MONGO_DB: ${MONGO_DB:-go_task_queue}
       MONGO_DLQ_COLLECTION: ${MONGO_DLQ_COLLECTION:-dlq_jobs}
       MONGO_LOG_COLLECTION: ${MONGO_LOG_COLLECTION:-log_entries}
+    volumes:
+      - ./handlers.user.json:/app/config/handlers.user.json:ro
     depends_on:
       - redis
       - mongo
