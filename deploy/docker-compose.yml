@@ -27,14 +27,14 @@ services:
       - mongo
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.6.1
     container_name: go-task-queue-redis
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
   mongo:
-    image: mongo:7
+    image: mongo:8.2.5
     container_name: go-task-queue-mongo
     restart: unless-stopped
     ports:
