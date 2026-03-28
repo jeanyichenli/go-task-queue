@@ -1,0 +1,107 @@
+<svg width="800" height="640" viewBox="0 0 800 640" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, sans-serif">
+
+  <!-- Background -->
+  <rect width="800" height="640" fill="#ffffff" rx="12"/>
+
+  <!-- Arrow marker -->
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#BA7517" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- ── HTTP Client ── -->
+  <rect x="300" y="24" width="200" height="44" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="400" y="46" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">HTTP client</text>
+
+  <!-- Arrow: client → API -->
+  <line x1="400" y1="68" x2="400" y2="108" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="412" y="91" font-size="12" fill="#888780">POST /jobs</text>
+
+  <!-- ── API Layer ── -->
+  <rect x="200" y="110" width="400" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="400" y="131" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#0C447C">API layer (httpapi)</text>
+  <text x="400" y="152" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#185FA5">Parses request, builds Job struct</text>
+
+  <!-- Arrow: API → Redis -->
+  <line x1="400" y1="166" x2="400" y2="206" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="412" y="189" font-size="12" fill="#888780">Enqueue(job)</text>
+
+  <!-- ── Redis Queue ── -->
+  <rect x="180" y="208" width="440" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="400" y="229" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#085041">Redis queue</text>
+  <text x="400" y="250" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#0F6E56">job:&lt;id&gt; hashes · queue:pending list · status sets</text>
+
+  <!-- Arrow: Redis → Worker Pool -->
+  <line x1="310" y1="264" x2="310" y2="304" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="224" y="287" font-size="12" fill="#888780">BRPOP / Dequeue</text>
+
+  <!-- ══ Worker Pool container ══ -->
+  <rect x="50" y="306" width="700" height="196" rx="16" fill="none" stroke="#888780" stroke-width="0.5" stroke-dasharray="6 4"/>
+  <text x="68" y="325" font-size="12" fill="#888780">Worker pool</text>
+
+  <!-- Worker 1 -->
+  <rect x="70" y="334" width="180" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="160" y="355" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#3C3489">Worker 1</text>
+  <text x="160" y="376" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#534AB7">type: echo</text>
+
+  <!-- Worker 2 (example) -->
+  <rect x="310" y="334" width="180" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="400" y="355" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#3C3489">Worker 2 (example)</text>
+  <text x="400" y="376" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#534AB7">type: always_fail *</text>
+
+  <!-- Worker N -->
+  <rect x="550" y="334" width="180" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="640" y="355" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#3C3489">Worker N</text>
+  <text x="640" y="376" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#534AB7">type: custom</text>
+
+  <!-- Ellipsis -->
+  <text x="272" y="366" text-anchor="middle" font-size="14" fill="#888780">···</text>
+  <text x="512" y="366" text-anchor="middle" font-size="14" fill="#888780">···</text>
+
+  <!-- Footnotes inside pool -->
+  <text x="400" y="412" text-anchor="middle" font-size="11" fill="#888780">Exponential back-off on retry · max attempts → dead letter</text>
+  <text x="400" y="430" text-anchor="middle" font-size="11" fill="#B4B2A9">* always_fail is a demo handler for triggering DLQ only</text>
+
+  <!-- Re-enqueue loop (left side) -->
+  <path d="M70 362 L40 362 L40 236 L178 236" fill="none" stroke="#888780" stroke-width="0.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <text x="22" y="302" text-anchor="middle" font-size="11" fill="#888780" transform="rotate(-90,22,302)">re-enqueue</text>
+
+  <!-- Arrow: Worker 1 → Microservice A -->
+  <line x1="160" y1="390" x2="160" y2="528" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Arrow: Worker 2 (always_fail) → DLQ -->
+  <line x1="400" y1="390" x2="640" y2="528" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+
+  <!-- Arrow: Worker N → Microservice B -->
+  <line x1="640" y1="390" x2="400" y2="528" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ── Microservice A ── -->
+  <rect x="70" y="530" width="180" height="44" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="160" y="552" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#712B13">Microservice A</text>
+
+  <!-- ── Microservice B ── -->
+  <rect x="310" y="530" width="180" height="44" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="400" y="552" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#712B13">Microservice B</text>
+
+  <!-- ── Dead Letter Queue ── -->
+  <rect x="550" y="530" width="180" height="56" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+  <text x="640" y="549" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#633806">Dead letter queue</text>
+  <text x="640" y="570" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#854F0B">MongoDB · dlq_jobs</text>
+
+  <!-- DLQ requeue loop (right side) -->
+  <path d="M730 554 L762 554 L762 236 L622 236" fill="none" stroke="#BA7517" stroke-width="0.5" stroke-dasharray="4 3" marker-end="url(#arrow-amber)"/>
+  <text x="774" y="400" text-anchor="middle" font-size="11" fill="#BA7517" transform="rotate(90,774,400)">POST /dlq/jobs/{id}/requeue</text>
+
+  <!-- Legend -->
+  <rect x="50" y="604" width="12" height="12" rx="2" fill="#534AB7"/>
+  <text x="68" y="615" font-size="11" fill="#888780">Worker handler</text>
+  <rect x="200" y="604" width="12" height="12" rx="2" fill="#993C1D"/>
+  <text x="218" y="615" font-size="11" fill="#888780">Downstream service</text>
+  <rect x="390" y="604" width="12" height="12" rx="2" fill="#BA7517"/>
+  <text x="408" y="615" font-size="11" fill="#888780">Dead letter / retry path</text>
+
+</svg>

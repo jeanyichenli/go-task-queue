@@ -14,9 +14,9 @@ This project is a small experimental task-queue service written in Go. It is bui
 
 ## Project Structure
 
-### Block diagram
+### System diagram
 
-(TODO)
+![System diagram](go-task-queue-diagram.svg)
 
 ### Repository layout
 
